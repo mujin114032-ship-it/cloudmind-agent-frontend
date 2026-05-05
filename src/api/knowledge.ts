@@ -1,5 +1,5 @@
 // src/api/knowledge.ts
-import request from '@/utils/request'
+import request, { aiService } from '@/utils/request'
 import type { PageData } from '@/utils/request'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 
@@ -66,6 +66,9 @@ export interface RetrievedChunkVO {
   chunkIndex: number
   score: number
   textPreview: string
+  hit?: boolean
+  sourceChunkId?: string
+  distance?: number
 }
 
 export interface RetrievalTestVO {
@@ -75,6 +78,8 @@ export interface RetrievalTestVO {
   resultCount: number
   costMs: number
   results: RetrievedChunkVO[]
+  hitCount?: number
+  contextCount?: number
 }
 
 // 测试知识库向量检索
@@ -85,10 +90,21 @@ export function retrievalTest(knowledgeBaseId: string, data: RetrievalTestReques
   )
 }
 
+export interface PromptTemplateVO {
+  version: string
+  name: string
+}
+
 export interface RagQaRequest {
   question: string
   topK?: number
   scoreThreshold?: number
+  promptVersion?: string
+}
+
+// 获取模板的接口方法
+export function getPromptTemplates() {
+  return request.get<any, PromptTemplateVO[]>('/api/rag/prompt-templates')
 }
 
 export interface RagReference {
@@ -98,6 +114,9 @@ export interface RagReference {
   chunkIndex: number
   score: number
   textPreview: string
+  hit?: boolean
+  sourceChunkId?: string
+  distance?: number
 }
 
 export interface RagQaVO {
@@ -112,9 +131,9 @@ export interface RagQaVO {
   totalCostMs: number
 }
 
-// 知识库普通 RAG 问答
+// 知识库普通 RAG 问答（使用长超时配置）
 export function ragQa(knowledgeBaseId: string, data: RagQaRequest) {
-  return request.post<any, RagQaVO>(
+  return aiService.post<any, RagQaVO>(
     `/api/knowledge-bases/${knowledgeBaseId}/rag/qa`,
     data
   )

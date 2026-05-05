@@ -109,3 +109,35 @@ export interface DocumentIngestVO {
 export function ingestDocument(documentId: string) {
   return request.post<any, DocumentIngestVO>(`/api/knowledge-documents/${documentId}/ingest`)
 }
+
+export interface DocumentIngestTaskVO {
+  taskId: string
+  documentId: string
+  knowledgeBaseId: string
+  status: number
+  stage: number
+  progress: number
+  totalChunks: number
+  processedChunks: number
+  modelName?: string
+  embeddingDim?: number
+  errorMessage?: string | null
+  startTime?: string | null
+  finishTime?: string | null
+  createTime: string
+}
+
+// 1. 提交异步入库任务
+export function submitIngestTask(documentId: string) {
+  return request.post<any, DocumentIngestTaskVO>(`/api/knowledge-documents/${documentId}/ingest-async`)
+}
+
+// 2. 查询单次任务详情 (用于轮询)
+export function getIngestTask(taskId: string) {
+  return request.get<any, DocumentIngestTaskVO>(`/api/ingest-tasks/${taskId}`)
+}
+
+// 3. 查询文档最新的入库任务 (用于页面刷新后恢复轮询状态)
+export function getLatestIngestTask(documentId: string) {
+  return request.get<any, DocumentIngestTaskVO>(`/api/knowledge-documents/${documentId}/ingest-task`)
+}

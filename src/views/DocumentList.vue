@@ -72,6 +72,7 @@
         <el-table-column prop="createTime" label="添加时间" width="180" align="center" />
         <el-table-column label="操作" width="300" align="center" fixed="right">
           <template #default="{ row }">
+            <!-- 1. 解析按钮 -->
             <el-button 
               v-if="row.parseStatus === 0 || row.parseStatus === 3" 
               link 
@@ -82,6 +83,7 @@
               解析
             </el-button>
             
+            <!-- 2. 查看分块按钮 -->
             <el-button 
               v-if="row.chunkCount > 0" 
               link 
@@ -91,46 +93,63 @@
               查看分块
             </el-button>
 
+            <!-- 3. 异步入库核心区 -->
             <template v-if="row.parseStatus === 2 && row.chunkCount > 0">
-              <el-button 
-                v-if="row.ingestStatus === 0" 
-                link 
-                type="success" 
-                :loading="ingestLoadingMap[row.documentId]"
-                @click="handleIngest(row)"
-              >
-                向量入库
-              </el-button>
-              <el-button 
-                v-else-if="row.ingestStatus === 1 || ingestLoadingMap[row.documentId]" 
-                link 
-                type="info" 
-                disabled
-              >
-                入库中...
-              </el-button>
-              <el-button 
-                v-else-if="row.ingestStatus === 2" 
-                link 
-                type="info" 
-                disabled
-              >
-                已入库
-              </el-button>
-              <el-button 
-                v-else-if="row.ingestStatus === 3" 
-                link 
-                type="danger" 
-                :loading="ingestLoadingMap[row.documentId]"
-                @click="handleIngest(row)"
-              >
-                重新入库
-              </el-button>
+              
+              <!-- 如果当前有正在轮询的活跃任务，显示进度条 -->
+              <div v-if="activeTasks[row.documentId]" class="task-progress-box">
+                <el-progress 
+                  :percentage="activeTasks[row.documentId].progress || 0" 
+                  :status="activeTasks[row.documentId].status === 3 ? 'exception' : (activeTasks[row.documentId].status === 2 ? 'success' : '')"
+                  :stroke-width="8"
+                />
+                <div class="task-stage-text">
+                  {{ getTaskStageText(activeTasks[row.documentId].stage) }} 
+                  ({{ activeTasks[row.documentId].processedChunks }}/{{ activeTasks[row.documentId].totalChunks }})
+                </div>
+              </div>
+
+              <!-- 否则显示操作按钮 -->
+              <template v-else>
+                <el-button 
+                  v-if="row.ingestStatus === 0" 
+                  link 
+                  type="success" 
+                  @click="handleAsyncIngest(row)"
+                >
+                  异步入库
+                </el-button>
+                <el-button 
+                  v-else-if="row.ingestStatus === 1" 
+                  link 
+                  type="info" 
+                  disabled
+                >
+                  等待队列中...
+                </el-button>
+                <el-button 
+                  v-else-if="row.ingestStatus === 2" 
+                  link 
+                  type="info" 
+                  disabled
+                >
+                  已入库
+                </el-button>
+                <el-button 
+                  v-else-if="row.ingestStatus === 3" 
+                  link 
+                  type="danger" 
+                  @click="handleAsyncIngest(row)"
+                >
+                  重新入库
+                </el-button>
+              </template>
             </template>
 
+            <!-- 4. 移除按钮 -->
             <el-popconfirm title="确定要移除此文档吗？" @confirm="handleDelete(row.documentId)">
               <template #reference>
-                <el-button link type="danger">移除</el-button>
+                <el-button link type="danger" :disabled="activeTasks[row.documentId]">移除</el-button>
               </template>
             </el-popconfirm>
           </template>
@@ -155,7 +174,6 @@
           <el-table-column prop="chunkText" label="分块内容" show-overflow-tooltip />
           <el-table-column prop="charCount" label="字符数" width="80" align="center" />
         </el-table>
-        
         <el-pagination
           v-model:current-page="chunkQueryParams.pageNo"
           v-model:page-size="chunkQueryParams.pageSize"
@@ -170,7 +188,6 @@
     <!-- 知识库检索测试抽屉 -->
     <el-drawer v-model="retrievalDrawerVisible" title="Milvus 向量检索测试" size="600px">
       <div class="retrieval-container">
-        <!-- 检索表单区 -->
         <el-form :model="retrievalForm" label-width="100px" label-position="left">
           <el-form-item label="检索问题">
             <el-input 
@@ -196,22 +213,23 @@
 
         <el-divider />
 
-        <!-- 检索结果区 -->
         <div class="retrieval-results" v-loading="retrievalLoading">
           <div v-if="retrievalResultData">
-            <div style="margin-bottom: 15px; color: #606266; font-size: 14px;">
-              检索耗时: <strong style="color: #67C23A;">{{ retrievalResultData.costMs }} ms</strong> 
-              | 命中数量: <strong>{{ retrievalResultData.resultCount }}</strong> 块
+            <div style="margin-bottom: 15px; color: #606266; font-size: 14px; background: #f4f4f5; padding: 10px; border-radius: 6px;">
+              检索耗时: <strong style="color: #67C23A;">{{ retrievalResultData.costMs }} ms</strong><br/>
+              Milvus 直接命中: <strong style="color: #1a73e8;">{{ retrievalResultData.hitCount || retrievalResultData.resultCount }}</strong> 块<br/>
+              最终装载上下文: <strong>{{ retrievalResultData.contextCount || retrievalResultData.resultCount }}</strong> 块
             </div>
-
+            
             <div v-if="retrievalResultData.results.length === 0">
               <el-empty description="未检索到相关片段，可尝试降低最低相似度或换一个问题" />
             </div>
-
+            
             <el-card 
               v-for="(item, index) in retrievalResultData.results" 
               :key="item.chunkId" 
               shadow="hover" 
+              :class="['retrieval-test-card', { 'is-context': item.hit === false }]"
               style="margin-bottom: 15px;"
             >
               <template #header>
@@ -219,8 +237,11 @@
                   <span style="font-weight: bold; font-size: 14px;">
                     #{{ index + 1 }} {{ item.fileName }} (分块 {{ item.chunkIndex }})
                   </span>
-                  <el-tag :type="item.score > 0.6 ? 'success' : 'warning'">
-                    Score: {{ item.score.toFixed(4) }}
+                  <el-tag v-if="item.hit !== false" size="small" :type="item.score > 0.6 ? 'success' : 'warning'" effect="dark">
+                    🎯 命中 Score: {{ item.score?.toFixed(4) || '0.0000' }}
+                  </el-tag>
+                  <el-tag v-else size="small" type="info" effect="plain">
+                    🔗 扩展 (距离 {{ (item.distance ?? 0) > 0 ? '+' : '' }}{{ item.distance ?? 0 }})
                   </el-tag>
                 </div>
               </template>
@@ -233,14 +254,13 @@
         </div>
       </div>
     </el-drawer>
-
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import type { UploadRawFile } from 'element-plus'
 import {
   getKnowledgeDocumentList,
@@ -248,18 +268,18 @@ import {
   parseDocument,
   listDocumentChunks,
   deleteKnowledgeDocument,
-  ingestDocument
+  submitIngestTask,
+  getIngestTask,
+  getLatestIngestTask
 } from '@/api/document'
-import type { KnowledgeDocumentVO, KnowledgeDocumentQueryRequest, DocumentChunkVO } from '@/api/document'
+import type { KnowledgeDocumentVO, KnowledgeDocumentQueryRequest, DocumentChunkVO, DocumentIngestTaskVO } from '@/api/document'
 
-// 引入检索测试相关的 API 
 import { retrievalTest } from '@/api/knowledge'
 import type { RetrievalTestRequest, RetrievalTestVO } from '@/api/knowledge'
 
 const route = useRoute()
 const knowledgeBaseId = route.params.knowledgeBaseId as string
 
-// --- 列表状态 ---
 const loading = ref(false)
 const tableData = ref<KnowledgeDocumentVO[]>([])
 const total = ref(0)
@@ -269,40 +289,50 @@ const queryParams = reactive<KnowledgeDocumentQueryRequest>({
   keyword: ''
 })
 
-// --- 上传与交互状态 ---
 const uploadLoading = ref(false)
 const parseLoadingMap = ref<Record<string, boolean>>({})
-const ingestLoadingMap = ref<Record<string, boolean>>({}) 
 
-// --- 分块抽屉状态 ---
+// --- 异步入库核心状态 ---
+const activeTasks = ref<Record<string, DocumentIngestTaskVO>>({})
+const pollingTimers: Record<string, number> = {}
+
+// --- 分块详情抽屉状态 ---
 const drawerVisible = ref(false)
 const chunksLoading = ref(false)
 const chunksData = ref<DocumentChunkVO[]>([])
 const chunkTotal = ref(0)
 const currentDocId = ref('')
-const chunkQueryParams = reactive({
-  pageNo: 1,
-  pageSize: 20
-})
+const chunkQueryParams = reactive({ pageNo: 1, pageSize: 20 })
 
-// --- 检索测试状态 ---
+// --- 检索测试抽屉状态 ---
 const retrievalDrawerVisible = ref(false)
 const retrievalLoading = ref(false)
-const retrievalForm = reactive<RetrievalTestRequest>({
-  query: '',
-  topK: 5,
-  scoreThreshold: 0.3
-})
+const retrievalForm = reactive<RetrievalTestRequest>({ query: '', topK: 5, scoreThreshold: 0.3 })
 const retrievalResultData = ref<RetrievalTestVO | null>(null)
 
 // --- 核心方法 ---
-
 const fetchData = async () => {
   try {
     loading.value = true
     const res = await getKnowledgeDocumentList(knowledgeBaseId, queryParams)
     tableData.value = res.records
     total.value = res.total
+
+    // 页面刷新时，自动检测是否有处于“入库中” (ingestStatus === 1) 的文档，恢复轮询
+    res.records.forEach(async (row) => {
+      if (row.ingestStatus === 1 && !pollingTimers[row.documentId]) {
+        try {
+          const task = await getLatestIngestTask(row.documentId)
+          if (task && (task.status === 0 || task.status === 1)) {
+            activeTasks.value[row.documentId] = task
+            startPolling(row.documentId, task.taskId)
+          }
+        } catch (e) {
+          // 忽略
+        }
+      }
+    })
+
   } finally {
     loading.value = false
   }
@@ -317,6 +347,7 @@ const handleKeywordInput = (value: string) => {
   if (!value) handleSearch()
 }
 
+// 上传前置校验
 const beforeUpload = (file: UploadRawFile) => {
   const MAX_FILE_SIZE = 100 * 1024 * 1024
   if (file.size > MAX_FILE_SIZE) {
@@ -332,6 +363,7 @@ const beforeUpload = (file: UploadRawFile) => {
   return true
 }
 
+// 真实文件上传方法
 const customUpload = async (options: any) => {
   const file = options.file as File
   try {
@@ -340,12 +372,13 @@ const customUpload = async (options: any) => {
     ElMessage.success('文档上传成功')
     fetchData()
   } catch (error) {
-    // 拦截器处理
+    // 错误在 request.ts 已拦截提示
   } finally {
     uploadLoading.value = false
   }
 }
 
+// 解析文档方法
 const handleParse = async (row: KnowledgeDocumentVO) => {
   try {
     parseLoadingMap.value[row.documentId] = true
@@ -357,34 +390,7 @@ const handleParse = async (row: KnowledgeDocumentVO) => {
   }
 }
 
-const handleIngest = async (row: KnowledgeDocumentVO) => {
-  try {
-    ingestLoadingMap.value[row.documentId] = true
-    const res = await ingestDocument(row.documentId)
-    ElMessageBox.alert(
-      `
-      <div style="line-height: 1.8; font-size: 14px;">
-        <p><strong>底层模型：</strong> <span style="color: #409EFF">${res.modelName}</span></p>
-        <p><strong>处理分块数：</strong> ${res.chunkCount} 块</p>
-        <p><strong>Milvus 写入数：</strong> <span style="color: #E6A23C">${res.vectorCount} 条</span></p>
-        <p><strong>总计耗时：</strong> <span style="color: #67C23A">${res.costMs} ms</span></p>
-      </div>
-      `,
-      '向量入库成功',
-      {
-        dangerouslyUseHTMLString: true,
-        type: res.success ? 'success' : 'error',
-        confirmButtonText: '完成'
-      }
-    )
-    fetchData()
-  } catch (error) {
-    // 拦截器处理
-  } finally {
-    ingestLoadingMap.value[row.documentId] = false
-  }
-}
-
+// 删除文档方法
 const handleDelete = async (id: string) => {
   await deleteKnowledgeDocument(id)
   ElMessage.success('移除成功')
@@ -394,6 +400,7 @@ const handleDelete = async (id: string) => {
   fetchData()
 }
 
+// 查看分块列表方法
 const openChunksDrawer = (documentId: string) => {
   currentDocId.value = documentId
   chunkQueryParams.pageNo = 1
@@ -412,7 +419,7 @@ const fetchChunksData = async () => {
   }
 }
 
-// --- 处理检索测试 ---
+// Milvus 检索测试方法
 const handleRetrievalTest = async () => {
   if (!retrievalForm.query.trim()) {
     ElMessage.warning('请输入检索问题')
@@ -429,7 +436,53 @@ const handleRetrievalTest = async () => {
   }
 }
 
-// --- 实用工具函数 ---
+// 提交异步入库任务
+const handleAsyncIngest = async (row: KnowledgeDocumentVO) => {
+  try {
+    const task = await submitIngestTask(row.documentId)
+    activeTasks.value[row.documentId] = task
+    row.ingestStatus = 1 
+    startPolling(row.documentId, task.taskId)
+  } catch (error) {
+    // 拦截器处理
+  }
+}
+
+// 轮询控制器
+const startPolling = (documentId: string, taskId: string) => {
+  if (pollingTimers[documentId]) return 
+
+  pollingTimers[documentId] = window.setInterval(async () => {
+    try {
+      const task = await getIngestTask(taskId)
+      activeTasks.value[documentId] = task
+
+      if (task.status === 2 || task.status === 3) {
+        window.clearInterval(pollingTimers[documentId])
+        delete pollingTimers[documentId]
+        
+        if (task.status === 2) {
+          ElMessage.success('向量入库完成')
+        } else {
+          ElMessage.error(`入库异常: ${task.errorMessage || '未知错误'}`)
+        }
+
+        setTimeout(() => {
+          delete activeTasks.value[documentId]
+          fetchData()
+        }, 2000)
+      }
+    } catch (error) {
+      console.error('任务轮询异常', error)
+    }
+  }, 1500)
+}
+
+onUnmounted(() => {
+  Object.values(pollingTimers).forEach(timer => window.clearInterval(timer))
+})
+
+// --- 工具函数 ---
 const formatFileSize = (bytes: number) => {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -456,6 +509,18 @@ const getIngestStatusType = (status: number) => {
   return map[status] || 'info'
 }
 
+const getTaskStageText = (stage: number) => {
+  const map: Record<number, string> = { 
+    0: '排队等待中', 
+    1: '校验中', 
+    2: '向量化计算中...', 
+    3: '写入 Milvus 中...', 
+    4: '更新状态', 
+    5: '完成' 
+  }
+  return map[stage] || '处理中'
+}
+
 onMounted(() => {
   fetchData()
 })
@@ -473,5 +538,30 @@ onMounted(() => {
 }
 .retrieval-container {
   padding: 10px;
+}
+
+/* 异步任务进度条容器样式 */
+.task-progress-box {
+  width: 140px;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-stage-text {
+  font-size: 11px;
+  color: #606266;
+  white-space: nowrap;
+}
+
+.retrieval-test-card.is-context {
+  border: 1px dashed #c0c4cc;
+  background-color: #fafafa;
+}
+.retrieval-test-card.is-context :deep(.el-card__header) {
+  background-color: #f4f4f5;
+  border-bottom: 1px dashed #ebeef5;
 }
 </style>
