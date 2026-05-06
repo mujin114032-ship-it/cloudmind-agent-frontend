@@ -89,12 +89,6 @@
               <el-form-item label="流式输出">
                 <el-switch v-model="ragConfig.useStream" />
               </el-form-item>
-              <el-form-item label="召回数量">
-                <el-slider v-model="ragConfig.topK" :min="1" :max="10" />
-              </el-form-item>
-              <el-form-item label="最低分数">
-                <el-slider v-model="ragConfig.scoreThreshold" :min="0" :max="1" :step="0.05" />
-              </el-form-item>
             </el-form>
           </el-popover>
         </div>
@@ -166,13 +160,50 @@
                           :class="['reference-card', { 'is-context-expansion': refItem.hit === false }]"
                         >
                           <div class="ref-header">
-                            <span class="ref-file">{{ refItem.fileName }} (块 {{ refItem.chunkIndex }})</span>
-                            <el-tag v-if="refItem.hit !== false" size="small" type="success" effect="dark" class="hit-tag">
-                              🎯 命中 Score: {{ refItem.score?.toFixed(3) || '0.000' }}
-                            </el-tag>
-                            <el-tag v-else size="small" type="info" effect="plain" class="hit-tag">
-                              🔗 扩展 (距离 {{ (refItem.distance || 0) > 0 ? '+' : '' }}{{ refItem.distance }})
-                            </el-tag>
+                            <span class="ref-file">Context #{{ refItem.fileName }} (块 {{ refItem.chunkIndex }})</span>
+                            
+                            <div class="ref-tags">
+                              <!-- 如果是核心命中节点 (hit !== false) -->
+                              <template v-if="refItem.hit !== false">
+                                <el-tag size="small" type="success" effect="dark" class="hit-tag">🎯 命中</el-tag>
+                                
+                                <!-- 混合检索来源标识 (忽略大小写防御性增强) -->
+                                <template v-if="(refItem as any).recallSource">
+                                  <el-tag size="small" type="primary" effect="plain" class="score-tag" style="background-color: #f3e8ff; border-color: #e9d5ff; color: #7e22ce;" v-if="String((refItem as any).recallSource).toLowerCase() === 'hybrid'">✨ 混合</el-tag>
+                                  <el-tag size="small" type="primary" effect="plain" class="score-tag" style="background-color: #e0f2fe; border-color: #d8b4fe; color: #6b21a8;" v-else-if="String((refItem as any).recallSource).toLowerCase() === 'vector'">🔍 向量</el-tag>
+                                  <el-tag size="small" type="primary" effect="plain" class="score-tag" style="background-color: #fdf4ff; border-color: #f5d0fe; color: #86198f;" v-else-if="String((refItem as any).recallSource).toLowerCase() === 'keyword'">📝 关键词</el-tag>
+                                  <el-tag size="small" type="info" effect="plain" class="score-tag" v-else>来源: {{ (refItem as any).recallSource }}</el-tag>
+                                </template>
+
+                                <el-tooltip content="Reranker 评估的真实相关性排名" placement="top" v-if="(refItem as any).rerankRank != null">
+                                  <el-tag size="small" type="primary" effect="plain" class="score-tag" style="cursor: help;">
+                                    Rerank #{{ (refItem as any).rerankRank }}
+                                  </el-tag>
+                                </el-tooltip>
+                                <el-tooltip content="向量检索基础打分" placement="top" v-if="(refItem as any).score != null">
+                                  <el-tag size="small" type="info" class="score-tag" style="cursor: help;">
+                                    V-Score: {{ (refItem as any).score?.toFixed(3) }}
+                                  </el-tag>
+                                </el-tooltip>
+                                <el-tooltip content="关键词检索打分" placement="top" v-if="(refItem as any).keywordScore != null">
+                                  <el-tag size="small" type="info" class="score-tag" style="cursor: help;">
+                                    K-Score: {{ (refItem as any).keywordScore?.toFixed(3) }}
+                                  </el-tag>
+                                </el-tooltip>
+                                <el-tooltip content="Reranker 交叉编码重排打分" placement="top" v-if="(refItem as any).rerankScore != null">
+                                  <el-tag size="small" type="warning" class="score-tag rerank-score" style="cursor: help;">
+                                    R-Score: {{ (refItem as any).rerankScore?.toFixed(3) }}
+                                  </el-tag>
+                                </el-tooltip>
+                              </template>
+                              
+                              <!-- 如果是上下文扩展节点 (hit === false) -->
+                              <template v-else>
+                                <el-tag size="small" type="info" effect="plain" class="hit-tag">
+                                  🔗 扩展 (距离 {{ ((refItem as any).distance || 0) > 0 ? '+' : '' }}{{ (refItem as any).distance || 0 }})
+                                </el-tag>
+                              </template>
+                            </div>
                           </div>
                           <div class="ref-preview">{{ refItem.textPreview }}</div>
                         </div>
@@ -182,10 +213,12 @@
                   
                   <!-- 元数据统计 -->
                   <div class="meta-info" v-if="msg.totalCostMs !== undefined">
-                    <el-tooltip content="大模型调用耗时与指令版本" placement="top">
+                    <el-tooltip content="模型与策略信息" placement="top">
                       <span class="meta-item">
                         🤖 {{ msg.llmCostMs }}ms | 
-                        <span style="color: #1a73e8; font-weight: 500;">{{ msg.promptVersion || 'basic-v1' }}</span>
+                        <span style="color: #1a73e8; font-weight: 500;">
+                          {{ msg.promptVersion || 'basic-v1' }} ({{ msg.searchMode || 'balanced' }})
+                        </span>
                       </span>
                     </el-tooltip>
                     <el-tooltip content="向量检索耗时" placement="top">
@@ -215,7 +248,34 @@
             :disabled="isGenerating || sessionsLoading"
           />
           <div class="input-actions">
-            <!-- 右下角极简 Prompt 下拉切换器 -->
+
+            <!-- 1. 检索模式 下拉切换器 (新增) -->
+            <el-dropdown 
+              placement="top-end" 
+              @command="(cmd: 'fast' | 'balanced' | 'quality') => ragConfig.searchMode = cmd"
+              trigger="click"
+            >
+              <div class="prompt-selector-trigger" style="margin-right: 4px;">
+                <!-- 动态颜色指示灯：快速绿，均衡蓝，深度紫 -->
+                <span class="prompt-dot" :style="{ backgroundColor: ragConfig.searchMode === 'quality' ? '#8b5cf6' : (ragConfig.searchMode === 'fast' ? '#10b981' : '#1a73e8') }"></span>
+                <span class="prompt-name">{{ currentSearchModeName }}</span>
+                <el-icon style="margin-left: 4px; font-size: 12px;"><ArrowUp /></el-icon>
+              </div>
+              <template #dropdown>
+                <el-dropdown-menu class="prompt-dropdown-menu">
+                  <el-dropdown-item 
+                    v-for="mode in searchModes" 
+                    :key="mode.value" 
+                    :command="mode.value"
+                    :class="{ 'is-active': ragConfig.searchMode === mode.value }"
+                  >
+                    {{ mode.label }}
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+
+            <!-- 2. 回答风格(Prompt) 下拉切换器 -->
             <el-dropdown 
               v-if="promptTemplates.length > 0" 
               placement="top-end" 
@@ -288,8 +348,9 @@
                 <el-descriptions-item label="检索耗时"><span style="color: #E6A23C">{{ traceData.retrievalCostMs }} ms</span></el-descriptions-item>
                 <el-descriptions-item label="生成耗时"><span style="color: #67C23A">{{ traceData.llmCostMs }} ms</span></el-descriptions-item>
                 <el-descriptions-item label="总耗时"><strong>{{ traceData.totalCostMs }} ms</strong></el-descriptions-item>
-                <el-descriptions-item label="大模型版本">{{ traceData.modelName }}</el-descriptions-item>
-                <el-descriptions-item label="Prompt版本">{{ traceData.promptVersion || '默认版本' }}</el-descriptions-item>
+                <el-descriptions-item label="大模型">{{ traceData.modelName }}</el-descriptions-item>
+                <el-descriptions-item label="Prompt">{{ traceData.promptVersion || '默认版本' }}</el-descriptions-item>
+                <el-descriptions-item label="检索模式">{{ (traceData as any).searchMode || '默认模式' }}</el-descriptions-item>
               </el-descriptions>
               <div v-if="traceData.errorMessage" class="trace-error-box">
                 <strong>报错信息：</strong><br/>{{ traceData.errorMessage }}
@@ -310,12 +371,52 @@
             <el-tab-pane label="🎯 召回明细" name="chunks">
               <el-alert v-if="!traceData.chunks || traceData.chunks.length === 0" title="本次检索没有召回任何 Chunk" type="info" :closable="false" />
               <div class="trace-chunk-list">
-                <div v-for="(chunk) in traceData.chunks" :key="chunk.chunkId" class="trace-chunk-item">
+                <div v-for="(chunk, idx) in traceData.chunks" :key="chunk.chunkId" class="trace-chunk-item">
                   <div class="t-chunk-header">
-                    <span class="t-chunk-rank">Rank #{{ chunk.rankNo }}</span>
-                    <span class="t-chunk-score">Score: {{ chunk.score.toFixed(4) }}</span>
+                    <!-- 状态标识与悬浮精准释义 -->
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <el-tooltip placement="top">
+                        <template #content>
+                          <div style="line-height: 1.6; font-size: 13px; font-family: monospace;">
+                            {{ getChunkTooltip(chunk, idx, traceData.chunks || []) }}
+                          </div>
+                        </template>
+                        <span class="t-chunk-rank" style="cursor: help;">Context #{{ idx + 1 }}</span>
+                      </el-tooltip>
+                      <el-tag v-if="(chunk as any).hit === false" size="small" type="info" effect="plain" class="hit-tag">🔗 扩展</el-tag>
+                      <el-tag v-else-if="(chunk as any).hit !== false" size="small" type="success" effect="dark" class="hit-tag">🎯 命中</el-tag>
+                    </div>
+                    <!-- 混合检索标识与双重打分展示 -->
+                    <div class="ref-tags">
+                      <template v-if="(chunk as any).recallSource">
+                        <el-tag size="small" type="primary" effect="plain" class="score-tag" style="background-color: #f3e8ff; border-color: #e9d5ff; color: #7e22ce;" v-if="String((chunk as any).recallSource).toLowerCase() === 'hybrid'">✨ 混合</el-tag>
+                        <el-tag size="small" type="primary" effect="plain" class="score-tag" style="background-color: #e0f2fe; border-color: #d8b4fe; color: #6b21a8;" v-else-if="String((chunk as any).recallSource).toLowerCase() === 'vector'">🔍 向量</el-tag>
+                        <el-tag size="small" type="primary" effect="plain" class="score-tag" style="background-color: #fdf4ff; border-color: #f5d0fe; color: #86198f;" v-else-if="String((chunk as any).recallSource).toLowerCase() === 'keyword'">📝 关键词</el-tag>
+                        <el-tag size="small" type="info" effect="plain" class="score-tag" v-else>来源: {{ (chunk as any).recallSource }}</el-tag>
+                      </template>
+
+                      <el-tooltip content="Reranker 评估的真实相关性排名" placement="top" v-if="(chunk as any).rerankRank != null">
+                        <el-tag size="small" type="primary" effect="plain" class="score-tag" style="cursor: help;">
+                          Rerank #{{ (chunk as any).rerankRank }}
+                        </el-tag>
+                      </el-tooltip>
+                      <el-tooltip content="向量检索基础打分" placement="top" v-if="(chunk as any).score != null">
+                        <el-tag size="small" type="info" class="score-tag" style="cursor: help;">V-Score: {{ chunk.score.toFixed(4) }}</el-tag>
+                      </el-tooltip>
+                      <el-tooltip content="关键词检索打分" placement="top" v-if="(chunk as any).keywordScore != null">
+                        <el-tag size="small" type="info" class="score-tag" style="cursor: help;">K-Score: {{ (chunk as any).keywordScore.toFixed(4) }}</el-tag>
+                      </el-tooltip>
+                      <el-tooltip content="Reranker 交叉编码重排打分" placement="top" v-if="(chunk as any).rerankScore != null">
+                        <el-tag size="small" type="warning" class="score-tag rerank-score" style="cursor: help;">
+                          R-Score: {{ (chunk as any).rerankScore.toFixed(4) }}
+                        </el-tag>
+                      </el-tooltip>
+                    </div>
                   </div>
-                  <div class="t-chunk-meta">来源：{{ chunk.fileName }} (分块 {{ chunk.chunkIndex }})</div>
+                  <div class="t-chunk-meta">
+                    来源：{{ chunk.fileName }} (分块 {{ chunk.chunkIndex }})
+                    <span v-if="(chunk as any).distance"> | 距离: {{ (chunk as any).distance > 0 ? '+' : '' }}{{ (chunk as any).distance }}</span>
+                  </div>
                   <div class="t-chunk-text">{{ chunk.textPreview }}</div>
                 </div>
               </div>
@@ -351,12 +452,19 @@ const route = useRoute()
 const knowledgeBaseId = route.params.knowledgeBaseId as string
 const md = new MarkdownIt({ breaks: true, linkify: true })
 
-// --- 侧边栏与模板状态 ---
+// --- 侧边栏与下拉选项配置 ---
 const isSidebarCollapsed = ref(false)
 const sessionList = ref<ChatSessionVO[]>([])
 const currentSessionId = ref<string>('')
 const sessionsLoading = ref(false)
-const promptTemplates = ref<PromptTemplateVO[]>([]) // 存储从后端拉取的模板列表
+const promptTemplates = ref<PromptTemplateVO[]>([]) 
+
+// 新增：预置的 Search Mode 配置项
+const searchModes = [
+  { value: 'fast', label: '快速模式 (速度优先)', short: '快速' },
+  { value: 'balanced', label: '均衡模式 (智能推荐)', short: '均衡' },
+  { value: 'quality', label: '深度模式 (质量优先)', short: '深度' }
+]
 
 const currentSession = computed(() => {
   return sessionList.value.find(s => s.sessionId === currentSessionId.value)
@@ -370,11 +478,13 @@ const isGenerating = ref(false)
 const messageListRef = ref<HTMLDivElement | null>(null)
 let abortController: AbortController | null = null
 
+// 更新配置项，加入 searchMode
 const ragConfig = reactive({
   useStream: true, 
   topK: 5,
   scoreThreshold: 0.3,
-  promptVersion: 'basic-v1' // 默认选项，会被模板接口返回的值修正
+  promptVersion: 'basic-v1',
+  searchMode: 'balanced' as 'fast' | 'balanced' | 'quality'
 })
 
 // --- Trace 状态 ---
@@ -382,6 +492,49 @@ const traceDrawerVisible = ref(false)
 const traceLoading = ref(false)
 const traceData = ref<RagTraceVO | null>(null)
 const activeTraceTab = ref('basic')
+
+// --- 工具函数 ---
+const currentSearchModeName = computed(() => {
+  return searchModes.find(m => m.value === ragConfig.searchMode)?.short || '均衡'
+})
+
+const currentPromptName = computed(() => {
+  const tpl = promptTemplates.value.find(t => t.version === ragConfig.promptVersion)
+  if (!tpl) return '基础'
+  return tpl.name.replace(' Prompt', '').replace('问答', '').replace('回答', '')
+})
+
+const getChunkTooltip = (chunk: any, index: number, allChunks: any[]) => {
+  const contextStr = `Context #${index + 1}`
+  
+  if (chunk.hit !== false) {
+    let sourceLabel = ''
+    if (chunk.recallSource) {
+      const rs = String(chunk.recallSource).toLowerCase()
+      if (rs === 'vector') sourceLabel = ' | 向量召回'
+      else if (rs === 'keyword') sourceLabel = ' | 关键词召回'
+      else if (rs === 'hybrid') sourceLabel = ' | 混合召回'
+      else sourceLabel = ` | ${chunk.recallSource}`
+    }
+
+    const rerankStr = chunk.rerankRank != null ? ` | Rerank #${chunk.rerankRank}` : ''
+    const vScoreStr = chunk.score != null ? ` | V-Score: ${chunk.score.toFixed(4)}` : ''
+    const kScoreStr = chunk.keywordScore != null ? ` | K-Score: ${chunk.keywordScore.toFixed(4)}` : ''
+    const rScoreStr = chunk.rerankScore != null ? ` | R-Score: ${chunk.rerankScore.toFixed(4)}` : ''
+    return `${contextStr} | 命中${sourceLabel}${rerankStr}${vScoreStr}${kScoreStr}${rScoreStr}`
+  } else {
+    const dist = chunk.distance || 0
+    const distanceStr = ` | 扩展 距离 ${dist > 0 ? '+' : ''}${dist}`
+    let sourceStr = ''
+    if (chunk.sourceChunkId && allChunks) {
+      const sourceChunk = allChunks.find(c => c.chunkId === chunk.sourceChunkId)
+      if (sourceChunk && sourceChunk.rerankRank != null) {
+        sourceStr = ` | 来源 Rerank #${sourceChunk.rerankRank}`
+      }
+    }
+    return `${contextStr}${distanceStr}${sourceStr}`
+  }
+}
 
 const renderMarkdown = (text: string) => md.render(text || '')
 
@@ -414,7 +567,6 @@ const fetchPromptTemplates = async () => {
   try {
     const res = await getPromptTemplates()
     promptTemplates.value = res
-    // 如果返回的模板中不存在 basic-v1，则将默认值设为第一个模板
     if (res.length > 0 && !res.find(t => t.version === ragConfig.promptVersion)) {
       ragConfig.promptVersion = res[0].version
     }
@@ -422,13 +574,6 @@ const fetchPromptTemplates = async () => {
     // 静默失败即可
   }
 }
-
-const currentPromptName = computed(() => {
-  const tpl = promptTemplates.value.find(t => t.version === ragConfig.promptVersion)
-  if (!tpl) return '基础'
-  // 提炼核心词，去掉冗余字眼
-  return tpl.name.replace(' Prompt', '').replace('问答', '').replace('回答', '')
-})
 
 // 1. 获取会话列表
 const fetchSessions = async () => {
@@ -522,12 +667,13 @@ const handleSend = async () => {
 
   abortController = new AbortController()
 
-  // 构造公用请求体
+  // 发送 Payload 时，附加 searchMode
   const requestPayload = {
     question, 
     topK: ragConfig.topK, 
     scoreThreshold: ragConfig.scoreThreshold,
-    promptVersion: ragConfig.promptVersion 
+    promptVersion: ragConfig.promptVersion,
+    searchMode: ragConfig.searchMode
   }
 
   try {
@@ -569,8 +715,10 @@ const handleSend = async () => {
               aiMsgRef.loading = false
               aiMsgRef.content = data.answer || aiMsgRef.content
               aiMsgRef.traceId = data.traceId || aiMsgRef.traceId
-              if (data.promptVersion) aiMsgRef.promptVersion = data.promptVersion 
               
+              if (data.promptVersion) aiMsgRef.promptVersion = data.promptVersion 
+              if (data.searchMode) aiMsgRef.searchMode = data.searchMode 
+
               aiMsgRef.retrievalCostMs = data.retrievalCostMs
               aiMsgRef.llmCostMs = data.llmCostMs
               aiMsgRef.totalCostMs = data.totalCostMs
@@ -603,6 +751,9 @@ const handleSend = async () => {
       if (aIdx !== -1) {
          if ((res as any).promptVersion || res.assistantMessage?.promptVersion) {
             res.assistantMessage.promptVersion = (res as any).promptVersion || res.assistantMessage.promptVersion
+         }
+         if ((res as any).searchMode || (res.assistantMessage as any)?.searchMode) {
+            (res.assistantMessage as any).searchMode = (res as any).searchMode || (res.assistantMessage as any).searchMode
          }
          messages.value.splice(aIdx, 1, res.assistantMessage)
       }
@@ -640,7 +791,7 @@ const openTraceDrawer = async (traceId: string) => {
 }
 
 onMounted(() => {
-  fetchPromptTemplates() // 先请求模板
+  fetchPromptTemplates() 
   fetchSessions()
 })
 </script>
@@ -739,7 +890,7 @@ onMounted(() => {
   padding-bottom: 2px; 
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px; /* 调小间距让两个胶囊更紧凑 */
 }
 
 .prompt-selector-trigger {
@@ -764,6 +915,7 @@ onMounted(() => {
   border-radius: 50%;
   background-color: #1a73e8;
   margin-right: 6px;
+  transition: background-color 0.3s ease;
 }
 .prompt-name {
   max-width: 80px;
@@ -789,9 +941,9 @@ onMounted(() => {
   color: #1a73e8;
   font-weight: 600;
 }
-.send-btn { width: 42px; height: 42px; background-color: #000000; border-color: #000000; color: #ffffff; transition: transform 0.2s; }
+.send-btn { width: 42px; height: 42px; background-color: #000000; border-color: #000000; color: #ffffff; transition: transform 0.2s; margin-left: 4px; }
 .send-btn:not(:disabled):hover { transform: scale(1.05); background-color: #202124; border-color: #202124; }
-.stop-btn { width: 42px; height: 42px; background-color: #f1f3f4; border-color: #f1f3f4; transition: transform 0.2s; display: flex; justify-content: center; align-items: center; }
+.stop-btn { width: 42px; height: 42px; background-color: #f1f3f4; border-color: #f1f3f4; transition: transform 0.2s; display: flex; justify-content: center; align-items: center; margin-left: 4px; }
 .stop-btn:hover { background-color: #e8eaed; transform: scale(1.05); }
 .stop-icon { width: 14px; height: 14px; background-color: #5f6368; border-radius: 2px; }
 .footer-tip { text-align: center; font-size: 12px; color: #80868b; margin-top: 16px; }
@@ -813,7 +965,21 @@ onMounted(() => {
 .trace-chunk-item:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
 .t-chunk-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .t-chunk-rank { font-weight: bold; color: #1a73e8; background: #e8f0fe; padding: 2px 8px; border-radius: 4px; font-size: 12px;}
-.t-chunk-score { font-size: 12px; color: #188038; font-family: monospace; }
 .t-chunk-meta { font-size: 12px; color: #80868b; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px dashed #e8eaed; }
 .t-chunk-text { font-size: 13px; color: #3c4043; line-height: 1.6; white-space: pre-wrap; }
+.ref-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.score-tag {
+  font-family: monospace;
+  border-radius: 4px;
+}
+.score-tag.rerank-score {
+  background-color: #fff8e6;
+  border-color: #faecd8;
+  color: #e6a23c;
+  font-weight: 600;
+}
 </style>

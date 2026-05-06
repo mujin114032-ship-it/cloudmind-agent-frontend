@@ -20,7 +20,12 @@ export interface ChatMessageReferenceVO {
   fileName: string
   chunkIndex: number
   rankNo: number
-  score: number
+  score?: number
+  keywordScore?: number
+  rerankScore?: number
+  recallSource?: 'vector' | 'keyword' | 'hybrid'
+  rerankRank?: number
+  contextOrder?: number
   textPreview: string
   hit?: boolean
   sourceChunkId?: string
@@ -34,6 +39,7 @@ export interface ChatMessageVO {
   content: string
   traceId?: string
   promptVersion?: string
+  searchMode?: string
   status: number
   errorMessage?: string | null
   retrievalCostMs?: number
@@ -50,6 +56,7 @@ export interface SessionRagQaRequest {
   topK?: number
   scoreThreshold?: number
   promptVersion?: string
+  searchMode?: 'fast' | 'balanced' | 'quality'
 }
 
 export interface SessionRagQaResponse {

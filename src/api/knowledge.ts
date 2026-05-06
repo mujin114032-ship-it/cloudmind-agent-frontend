@@ -65,6 +65,7 @@ export interface RetrievedChunkVO {
   fileName: string
   chunkIndex: number
   score: number
+  rerankScore?: number
   textPreview: string
   hit?: boolean
   sourceChunkId?: string
@@ -205,6 +206,8 @@ export interface TraceChunkVO {
   chunkIndex: number
   rankNo: number
   score: number
+  rerankRank?: number
+  rerankScore?: number
   textPreview: string
 }
 
@@ -218,6 +221,7 @@ export interface RagTraceVO {
   scoreThreshold: number
   resultCount: number
   promptVersion?: string
+  searchMode?: string
   systemPrompt?: string
   userPrompt?: string
   modelName: string
