@@ -30,6 +30,22 @@ const aiService = axios.create({
   timeout: 120000
 })
 
+export const getLablinkToken = () => {
+  return sessionStorage.getItem('lablink_token') || localStorage.getItem('token') || ''
+}
+
+const attachLablinkToken = (config: any) => {
+  const token = getLablinkToken()
+  if (token) {
+    config.headers = config.headers || {}
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+}
+
+service.interceptors.request.use(attachLablinkToken)
+aiService.interceptors.request.use(attachLablinkToken)
+
 // AI 请求的响应拦截器
 aiService.interceptors.response.use(
   (response) => {

@@ -7,6 +7,11 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     redirect: '/knowledge'
   },
+    {
+    path: '/lablink-agent',
+    name: 'LablinkAgent',
+    component: () => import('@/views/LablinkAgent.vue')
+  },
   {
     path: '/knowledge',
     name: 'Knowledge',

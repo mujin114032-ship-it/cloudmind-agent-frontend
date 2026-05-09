@@ -12,8 +12,8 @@
                 <el-icon><Menu /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-button class="sidebar-back-btn" @click="handleBack">
-              <el-icon style="margin-right: 8px; font-size: 16px;"><ArrowLeft /></el-icon> {{ backButtonText }}
+            <el-button class="sidebar-back-btn" @click="$router.push('/knowledge')">
+              <el-icon style="margin-right: 8px; font-size: 16px;"><ArrowLeft /></el-icon> 返回知识库
             </el-button>
           </div>
           <el-button class="new-chat-btn" @click="createNewSession" :disabled="isGenerating">
@@ -33,7 +33,7 @@
               <div class="session-title">{{ session.title }}</div>
             </div>
             
-            <el-popconfirm v-if="!isLablinkMode" title="确定删除此会话吗？" @confirm="handleDeleteSession(session.sessionId)" width="180">
+            <el-popconfirm title="确定删除此会话吗？" @confirm="handleDeleteSession(session.sessionId)" width="180">
               <template #reference>
                 <div class="delete-icon-wrapper" @click.stop>
                   <el-icon class="delete-icon"><Delete /></el-icon>
@@ -63,8 +63,8 @@
         <!-- 底部弹性占位，把返回按钮推到最下方 -->
         <div style="flex: 1"></div>
 
-        <el-tooltip :content="backButtonText" placement="right" :show-after="500">
-          <el-button class="sidebar-icon-btn" @click="handleBack">
+        <el-tooltip content="返回知识库" placement="right" :show-after="500">
+          <el-button class="sidebar-icon-btn" @click="$router.push('/knowledge')">
             <el-icon><ArrowLeft /></el-icon>
           </el-button>
         </el-tooltip>
@@ -76,7 +76,7 @@
       <!-- 顶部导航栏 -->
       <header class="chat-header">
         <div class="header-left">
-          <span class="header-title">{{ currentSession?.title || chatHeaderTitle }}</span>
+          <span class="header-title">{{ currentSession?.title || '新对话' }}</span>
         </div>
         
         <div class="header-right">
@@ -86,7 +86,7 @@
               <el-button round size="small" class="settings-btn">⚙️ 设置</el-button>
             </template>
             <el-form label-width="100px" size="small" style="margin-top: 15px;">
-              <el-form-item v-if="!isLablinkMode" label="流式输出">
+              <el-form-item label="流式输出">
                 <el-switch v-model="ragConfig.useStream" />
               </el-form-item>
             </el-form>
@@ -100,8 +100,7 @@
           <!-- 初始空状态 -->
           <div v-if="messages.length === 0 && !messagesLoading" class="empty-state">
             <div class="gemini-sparkle-large">✨</div>
-            <h2>{{ isLablinkMode ? '已连接 LabLink 私有知识库' : '今天想了解什么内容？' }}</h2>
-            <p v-if="isLablinkMode" class="empty-subtitle">可直接询问你在 LabLink 中上传并同步的文档内容。</p>
+            <h2>今天想了解什么内容？</h2>
           </div>
           
           <div v-for="(msg, index) in messages" :key="msg.messageId || index" :class="['message-row', msg.role]">
@@ -432,7 +431,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, nextTick, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Right, Plus, Delete, ChatLineRound, Menu, ArrowUp } from '@element-plus/icons-vue'
 import MarkdownIt from 'markdown-it'
@@ -445,25 +444,13 @@ import {
   sessionRagQa,
   sessionStreamRagQa
 } from '@/api/chat'
-import { lablinkAgentStreamChat, getLablinkAgentSessions, getLablinkAgentSessionMessages } from '@/api/lablinkAgent'
-import type { LablinkAgentBootstrapData } from '@/api/lablinkAgent'
 import type { ChatSessionVO, ChatMessageVO } from '@/api/chat'
 import { getTraceDetail, getPromptTemplates } from '@/api/knowledge'
 import type { RagTraceVO, PromptTemplateVO } from '@/api/knowledge'
 
-const props = defineProps<{
-  lablinkMode?: boolean
-  bootstrapData?: LablinkAgentBootstrapData | null
-}>()
-
 const route = useRoute()
-const router = useRouter()
 const knowledgeBaseId = route.params.knowledgeBaseId as string
 const md = new MarkdownIt({ breaks: true, linkify: true })
-
-const isLablinkMode = computed(() => props.lablinkMode === true || route.path === '/lablink-agent')
-const backButtonText = computed(() => isLablinkMode.value ? '返回 LabLink' : '返回知识库')
-const chatHeaderTitle = computed(() => isLablinkMode.value ? (props.bootstrapData?.knowledgeBaseName || 'LabLink 私有 Agent') : '新对话')
 
 // --- 侧边栏与下拉选项配置 ---
 const isSidebarCollapsed = ref(false)
@@ -480,19 +467,7 @@ const searchModes = [
 ]
 
 const currentSession = computed(() => {
-  const matched = sessionList.value.find(s => s.sessionId === currentSessionId.value)
-  if (matched) return matched
-  if (isLablinkMode.value) {
-    return {
-      sessionId: currentSessionId.value || 'lablink-agent',
-      knowledgeBaseId: props.bootstrapData?.knowledgeBaseId || '',
-      title: currentSessionId.value ? '当前对话' : (props.bootstrapData?.knowledgeBaseName || 'LabLink 私有 Agent'),
-      status: 1,
-      messageCount: messages.value.length,
-      createTime: new Date().toISOString()
-    } as ChatSessionVO
-  }
-  return undefined
+  return sessionList.value.find(s => s.sessionId === currentSessionId.value)
 })
 
 // --- 消息与输入状态 ---
@@ -507,7 +482,7 @@ let abortController: AbortController | null = null
 const ragConfig = reactive({
   useStream: true, 
   topK: 5,
-  scoreThreshold: 0,
+  scoreThreshold: 0.3,
   promptVersion: 'basic-v1',
   searchMode: 'balanced' as 'fast' | 'balanced' | 'quality'
 })
@@ -574,14 +549,6 @@ const scrollToBottom = () => {
   })
 }
 
-const handleBack = () => {
-  if (isLablinkMode.value) {
-    window.location.href = 'http://localhost:5173/'
-    return
-  }
-  router.push('/knowledge')
-}
-
 const handleStop = () => {
   if (abortController) {
     abortController.abort()
@@ -612,19 +579,10 @@ const fetchPromptTemplates = async () => {
 const fetchSessions = async () => {
   try {
     sessionsLoading.value = true
-
-    if (isLablinkMode.value) {
-      const res = await getLablinkAgentSessions()
-      sessionList.value = res as ChatSessionVO[]
-      return
-    }
-
     const res = await getChatSessionList({ knowledgeBaseId, pageNo: 1, pageSize: 50 })
     sessionList.value = res.records
   } catch (error) {
-    if (isLablinkMode.value) {
-      ElMessage.error('加载 LabLink 历史会话失败')
-    }
+    //
   } finally {
     sessionsLoading.value = false
   }
@@ -642,15 +600,8 @@ const selectSession = async (session: ChatSessionVO) => {
   currentSessionId.value = session.sessionId
   try {
     messagesLoading.value = true
-
-    if (isLablinkMode.value) {
-      const res = await getLablinkAgentSessionMessages(session.sessionId)
-      messages.value = res as ChatMessageVO[]
-    } else {
-      const res = await getChatMessageList(session.sessionId, { pageNo: 1, pageSize: 100 })
-      messages.value = res.records
-    }
-
+    const res = await getChatMessageList(session.sessionId, { pageNo: 1, pageSize: 100 })
+    messages.value = res.records 
     scrollToBottom()
   } catch (error) {
     ElMessage.error('加载历史消息失败')
@@ -683,7 +634,7 @@ const handleSend = async () => {
   isGenerating.value = true
 
   let targetSessionId = currentSessionId.value
-  if (!targetSessionId && !isLablinkMode.value) {
+  if (!targetSessionId) {
     const title = question.length > 15 ? question.slice(0, 15) + '...' : question
     const newSession = await createChatSession({ knowledgeBaseId, title })
     targetSessionId = newSession.sessionId
@@ -691,13 +642,12 @@ const handleSend = async () => {
     fetchSessions()
   }
 
-  const displaySessionId = targetSessionId || `lablink_pending_${Date.now()}`
   const tempUserMsgId = 'temp_user_' + Date.now()
   const tempAiMsgId = 'temp_ai_' + Date.now()
   
   messages.value.push({
     messageId: tempUserMsgId,
-    sessionId: displaySessionId,
+    sessionId: targetSessionId,
     role: 'user',
     content: question,
     status: 1,
@@ -706,7 +656,7 @@ const handleSend = async () => {
   
   messages.value.push({
     messageId: tempAiMsgId,
-    sessionId: displaySessionId,
+    sessionId: targetSessionId,
     role: 'assistant',
     content: '',
     status: 1,
@@ -717,6 +667,7 @@ const handleSend = async () => {
 
   abortController = new AbortController()
 
+  // 发送 Payload 时，附加 searchMode
   const requestPayload = {
     question, 
     topK: ragConfig.topK, 
@@ -725,96 +676,69 @@ const handleSend = async () => {
     searchMode: ragConfig.searchMode
   }
 
-  const buildStreamHandlers = (tempSessionId: string) => {
-    let aiMsgRef: ChatMessageVO | undefined = messages.value.find(m => m.messageId === tempAiMsgId)
-
-    return {
-      onMessageCreated: (data: any) => {
-        if (data.sessionId) {
-          currentSessionId.value = String(data.sessionId)
-        }
-        const realSessionId = currentSessionId.value || targetSessionId || tempSessionId
-
-        const uIdx = messages.value.findIndex(m => m.messageId === tempUserMsgId)
-        if (uIdx !== -1) {
-          if (data.userMessage) {
-            messages.value.splice(uIdx, 1, data.userMessage)
-          } else {
-            messages.value[uIdx].sessionId = realSessionId
-          }
-        }
-        
-        const aIdx = messages.value.findIndex(m => m.messageId === tempAiMsgId)
-        if (aIdx !== -1) {
-          if (data.assistantMessage) {
-            data.assistantMessage.loading = true 
-            messages.value.splice(aIdx, 1, data.assistantMessage)
-          } else {
-            messages.value[aIdx].sessionId = realSessionId
-          }
-          aiMsgRef = messages.value[aIdx]
-        }
-        if (data.traceId && aiMsgRef) aiMsgRef.traceId = data.traceId
-      },
-      onRetrievalDone: (data: any) => {
-        if (aiMsgRef) {
-          aiMsgRef.references = data.references || data.assistantMessage?.references || aiMsgRef.references
-          if (data.traceId) aiMsgRef.traceId = data.traceId
-        }
-      },
-      onDelta: (data: any) => {
-        if (aiMsgRef) {
-          if (aiMsgRef.loading) aiMsgRef.loading = false
-          aiMsgRef.content += (data.content || '')
-          if (data.traceId) aiMsgRef.traceId = data.traceId
-          scrollToBottom()
-        }
-      },
-      onDone: (data: any) => {
-        if (aiMsgRef) {
-          aiMsgRef.loading = false
-          aiMsgRef.content = data.answer || data.content || data.assistantMessage?.content || aiMsgRef.content
-          aiMsgRef.traceId = data.traceId || data.assistantMessage?.traceId || aiMsgRef.traceId
-          aiMsgRef.promptVersion = data.promptVersion || data.assistantMessage?.promptVersion || aiMsgRef.promptVersion
-          aiMsgRef.searchMode = data.searchMode || data.assistantMessage?.searchMode || aiMsgRef.searchMode
-          aiMsgRef.retrievalCostMs = data.retrievalCostMs ?? data.assistantMessage?.retrievalCostMs ?? aiMsgRef.retrievalCostMs
-          aiMsgRef.llmCostMs = data.llmCostMs ?? data.assistantMessage?.llmCostMs ?? aiMsgRef.llmCostMs
-          aiMsgRef.totalCostMs = data.totalCostMs ?? data.assistantMessage?.totalCostMs ?? aiMsgRef.totalCostMs
-          aiMsgRef.references = data.references || data.assistantMessage?.references || aiMsgRef.references
-        }
-        isGenerating.value = false
-        abortController = null
-        fetchSessions()
-        scrollToBottom()
-      },
-      onError: (errMessage: string) => {
-        if (aiMsgRef) {
-          aiMsgRef.loading = false
-          aiMsgRef.status = 2 
-          aiMsgRef.errorMessage = errMessage
-        }
-        isGenerating.value = false
-        abortController = null
-      }
-    }
-  }
-
   try {
-    if (isLablinkMode.value) {
-      ragConfig.useStream = true
-      await lablinkAgentStreamChat(
-        {
-          sessionId: currentSessionId.value || null,
-          ...requestPayload
-        },
-        buildStreamHandlers(displaySessionId),
-        abortController.signal
-      )
-    } else if (ragConfig.useStream) {
+    if (ragConfig.useStream) {
+      let aiMsgRef: ChatMessageVO | undefined 
+
       await sessionStreamRagQa(
         targetSessionId,
         requestPayload,
-        buildStreamHandlers(displaySessionId),
+        {
+          onMessageCreated: (data) => {
+            const uIdx = messages.value.findIndex(m => m.messageId === tempUserMsgId)
+            if (uIdx !== -1) messages.value.splice(uIdx, 1, data.userMessage)
+            
+            const aIdx = messages.value.findIndex(m => m.messageId === tempAiMsgId)
+            if (aIdx !== -1) {
+              data.assistantMessage.loading = true 
+              messages.value.splice(aIdx, 1, data.assistantMessage)
+              aiMsgRef = messages.value[aIdx]
+            }
+            if (data.traceId && aiMsgRef) aiMsgRef.traceId = data.traceId
+          },
+          onRetrievalDone: (data) => {
+            if (aiMsgRef) {
+              aiMsgRef.references = data.references
+              if (data.traceId) aiMsgRef.traceId = data.traceId
+            }
+          },
+          onDelta: (data) => {
+            if (aiMsgRef) {
+              if (aiMsgRef.loading) aiMsgRef.loading = false
+              aiMsgRef.content += (data.content || '')
+              if (data.traceId) aiMsgRef.traceId = data.traceId
+              scrollToBottom()
+            }
+          },
+          onDone: (data) => {
+            if (aiMsgRef) {
+              aiMsgRef.loading = false
+              aiMsgRef.content = data.answer || aiMsgRef.content
+              aiMsgRef.traceId = data.traceId || aiMsgRef.traceId
+              
+              if (data.promptVersion) aiMsgRef.promptVersion = data.promptVersion 
+              if (data.searchMode) aiMsgRef.searchMode = data.searchMode 
+
+              aiMsgRef.retrievalCostMs = data.retrievalCostMs
+              aiMsgRef.llmCostMs = data.llmCostMs
+              aiMsgRef.totalCostMs = data.totalCostMs
+              aiMsgRef.references = data.assistantMessage?.references || aiMsgRef.references
+            }
+            isGenerating.value = false
+            abortController = null
+            fetchSessions() 
+            scrollToBottom()
+          },
+          onError: (errMessage) => {
+            if (aiMsgRef) {
+              aiMsgRef.loading = false
+              aiMsgRef.status = 2 
+              aiMsgRef.errorMessage = errMessage
+            }
+            isGenerating.value = false
+            abortController = null
+          }
+        },
         abortController.signal
       )
     } else {
@@ -867,17 +791,6 @@ const openTraceDrawer = async (traceId: string) => {
 }
 
 onMounted(() => {
-  if (isLablinkMode.value) {
-    ragConfig.useStream = true
-    if (props.bootstrapData?.defaultPromptVersion) {
-      ragConfig.promptVersion = props.bootstrapData.defaultPromptVersion
-    }
-    const defaultSearchMode = props.bootstrapData?.defaultSearchMode
-    if (defaultSearchMode === 'fast' || defaultSearchMode === 'balanced' || defaultSearchMode === 'quality') {
-      ragConfig.searchMode = defaultSearchMode
-    }
-  }
-
   fetchPromptTemplates() 
   fetchSessions()
 })
@@ -925,7 +838,6 @@ onMounted(() => {
 .gemini-sparkle-large { font-size: 48px; margin-bottom: 20px; animation: float 3s ease-in-out infinite; }
 @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
 .empty-state h2 { font-weight: 400; font-size: 24px; }
-.empty-subtitle { margin-top: 10px; color: #6b7280; font-size: 15px; }
 .message-row { margin-bottom: 32px; display: flex; width: 100%; }
 .message-row.user { justify-content: flex-end; }
 .user-bubble { background-color: #f0f4f9; color: #202124; padding: 12px 20px; border-radius: 24px 24px 4px 24px; font-size: 15px; line-height: 1.6; max-width: 80%; white-space: pre-wrap; }

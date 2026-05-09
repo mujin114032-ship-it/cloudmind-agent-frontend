@@ -11,9 +11,10 @@ export default defineConfig({
     }
   },
   server: {
+    port: 5174,
     proxy: {
       '/api': {
-        target: 'http://localhost:8080', // 后端服务地址
+        target: 'http://localhost:8081', // 后端服务地址
         changeOrigin: true,
         // 如果后端使用 HTTPS，需要添加 secure: false
         // secure: false
