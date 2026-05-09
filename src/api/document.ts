@@ -60,12 +60,12 @@ export interface KnowledgeDocumentQueryRequest {
 
 // 1. 获取文档列表
 export function getKnowledgeDocumentList(knowledgeBaseId: string, params: KnowledgeDocumentQueryRequest) {
-  return request.get<any, PageData<KnowledgeDocumentVO>>(`/api/knowledge-bases/${knowledgeBaseId}/documents`, { params })
+  return request.get<any, PageData<KnowledgeDocumentVO>>(`/knowledge-bases/${knowledgeBaseId}/documents`, { params })
 }
 
 // 2. 删除文档
 export function deleteKnowledgeDocument(documentId: string) {
-  return request.delete<any, null>(`/api/knowledge-documents/${documentId}`)
+  return request.delete<any, null>(`/knowledge-documents/${documentId}`)
 }
 
 // 3. 上传真实文档
@@ -73,7 +73,7 @@ export function uploadDocumentToKnowledgeBase(knowledgeBaseId: string, file: Fil
   const formData = new FormData()
   formData.append('file', file)
   return request.post<any, UploadKnowledgeDocumentResponse>(
-    `/api/knowledge-bases/${knowledgeBaseId}/documents/upload`,
+    `/knowledge-bases/${knowledgeBaseId}/documents/upload`,
     formData,
     { headers: { 'Content-Type': 'multipart/form-data' } }
   )
@@ -81,17 +81,17 @@ export function uploadDocumentToKnowledgeBase(knowledgeBaseId: string, file: Fil
 
 // 4. 解析文档并生成分块
 export function parseDocument(documentId: string) {
-  return request.post<any, null>(`/api/knowledge-documents/${documentId}/parse`)
+  return request.post<any, null>(`/knowledge-documents/${documentId}/parse`)
 }
 
 // 5. 查询文档分块列表
 export function listDocumentChunks(documentId: string, params?: { pageNo?: number; pageSize?: number }) {
-  return request.get<any, PageData<DocumentChunkVO>>(`/api/knowledge-documents/${documentId}/chunks`, { params })
+  return request.get<any, PageData<DocumentChunkVO>>(`/knowledge-documents/${documentId}/chunks`, { params })
 }
 
 // 6. 测试文档向量化
 export function embedTest(documentId: string) {
-  return request.post<any, EmbeddingTestVO>(`/api/knowledge-documents/${documentId}/embed-test`)
+  return request.post<any, EmbeddingTestVO>(`/knowledge-documents/${documentId}/embed-test`)
 }
 
 export interface DocumentIngestVO {
@@ -107,7 +107,7 @@ export interface DocumentIngestVO {
 
 // 7. 文档向量入库
 export function ingestDocument(documentId: string) {
-  return request.post<any, DocumentIngestVO>(`/api/knowledge-documents/${documentId}/ingest`)
+  return request.post<any, DocumentIngestVO>(`/knowledge-documents/${documentId}/ingest`)
 }
 
 export interface DocumentIngestTaskVO {
@@ -129,15 +129,15 @@ export interface DocumentIngestTaskVO {
 
 // 1. 提交异步入库任务
 export function submitIngestTask(documentId: string) {
-  return request.post<any, DocumentIngestTaskVO>(`/api/knowledge-documents/${documentId}/ingest-async`)
+  return request.post<any, DocumentIngestTaskVO>(`/knowledge-documents/${documentId}/ingest-async`)
 }
 
 // 2. 查询单次任务详情 (用于轮询)
 export function getIngestTask(taskId: string) {
-  return request.get<any, DocumentIngestTaskVO>(`/api/ingest-tasks/${taskId}`)
+  return request.get<any, DocumentIngestTaskVO>(`/ingest-tasks/${taskId}`)
 }
 
 // 3. 查询文档最新的入库任务 (用于页面刷新后恢复轮询状态)
 export function getLatestIngestTask(documentId: string) {
-  return request.get<any, DocumentIngestTaskVO>(`/api/knowledge-documents/${documentId}/ingest-task`)
+  return request.get<any, DocumentIngestTaskVO>(`/knowledge-documents/${documentId}/ingest-task`)
 }

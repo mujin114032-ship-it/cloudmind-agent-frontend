@@ -1,5 +1,5 @@
 // src/api/knowledge.ts
-import request, { aiService } from '@/utils/request'
+import request, { aiService, buildCloudMindApiUrl, getLablinkToken } from '@/utils/request'
 import type { PageData } from '@/utils/request'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 
@@ -30,27 +30,27 @@ export interface KnowledgeBaseQueryRequest {
 
 // 1. 创建知识库
 export function createKnowledgeBase(data: CreateKnowledgeBaseRequest) {
-  return request.post<any, KnowledgeBaseVO>('/api/knowledge-bases', data)
+  return request.post<any, KnowledgeBaseVO>('/knowledge-bases', data)
 }
 
 // 2. 查询知识库列表
 export function getKnowledgeBaseList(params: KnowledgeBaseQueryRequest) {
-  return request.get<any, PageData<KnowledgeBaseVO>>('/api/knowledge-bases', { params })
+  return request.get<any, PageData<KnowledgeBaseVO>>('/knowledge-bases', { params })
 }
 
 // 3. 查询知识库详情
 export function getKnowledgeBaseDetail(id: string) {
-  return request.get<any, KnowledgeBaseVO>(`/api/knowledge-bases/${id}`)
+  return request.get<any, KnowledgeBaseVO>(`/knowledge-bases/${id}`)
 }
 
 // 4. 更新知识库
 export function updateKnowledgeBase(id: string, data: CreateKnowledgeBaseRequest) {
-  return request.put<any, KnowledgeBaseVO>(`/api/knowledge-bases/${id}`, data)
+  return request.put<any, KnowledgeBaseVO>(`/knowledge-bases/${id}`, data)
 }
 
 // 5. 删除知识库
 export function deleteKnowledgeBase(id: string) {
-  return request.delete<any, null>(`/api/knowledge-bases/${id}`)
+  return request.delete<any, null>(`/knowledge-bases/${id}`)
 }
 
 export interface RetrievalTestRequest {
@@ -86,7 +86,7 @@ export interface RetrievalTestVO {
 // 测试知识库向量检索
 export function retrievalTest(knowledgeBaseId: string, data: RetrievalTestRequest) {
   return request.post<any, RetrievalTestVO>(
-    `/api/knowledge-bases/${knowledgeBaseId}/retrieval-test`,
+    `/knowledge-bases/${knowledgeBaseId}/retrieval-test`,
     data
   )
 }
@@ -105,7 +105,7 @@ export interface RagQaRequest {
 
 // 获取模板的接口方法
 export function getPromptTemplates() {
-  return request.get<any, PromptTemplateVO[]>('/api/rag/prompt-templates')
+  return request.get<any, PromptTemplateVO[]>('/rag/prompt-templates')
 }
 
 export interface RagReference {
@@ -135,7 +135,7 @@ export interface RagQaVO {
 // 知识库普通 RAG 问答（使用长超时配置）
 export function ragQa(knowledgeBaseId: string, data: RagQaRequest) {
   return aiService.post<any, RagQaVO>(
-    `/api/knowledge-bases/${knowledgeBaseId}/rag/qa`,
+    `/knowledge-bases/${knowledgeBaseId}/rag/qa`,
     data
   )
 }
@@ -156,14 +156,16 @@ export function streamRagQa(
   },
   signal?: AbortSignal
 ) {
+  const token = getLablinkToken()
+
   return fetchEventSource(
-    `/api/knowledge-bases/${knowledgeBaseId}/rag/qa/stream`,
+    buildCloudMindApiUrl(`/knowledge-bases/${knowledgeBaseId}/rag/qa/stream`),
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'text/event-stream'
-        // 'Authorization': `Bearer ${token}`
+        'Accept': 'text/event-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
       body: JSON.stringify(data),
       signal,
@@ -243,10 +245,10 @@ export function getTraceList(params: {
   status?: number
   keyword?: string
 }) {
-  return request.get<any, PageData<RagTraceVO>>('/api/rag/traces', { params })
+  return request.get<any, PageData<RagTraceVO>>('/rag/traces', { params })
 }
 
 // 2. 获取单条 Trace 详情
 export function getTraceDetail(traceId: string) {
-  return request.get<any, RagTraceVO>(`/api/rag/traces/${traceId}`)
+  return request.get<any, RagTraceVO>(`/rag/traces/${traceId}`)
 }

@@ -79,6 +79,7 @@ import {
   getLablinkAgentBootstrap,
   saveLablinkAgentLlmKey
 } from '@/api/lablinkAgent'
+import { getLablinkToken } from '@/utils/request'
 import type { LablinkAgentBootstrapData } from '@/api/lablinkAgent'
 
 const router = useRouter()
@@ -97,12 +98,16 @@ const persistTokenFromUrl = () => {
   }
 }
 
+const getLablinkHomeUrl = () => {
+  return import.meta.env.DEV ? 'http://localhost:5173/' : `${window.location.origin}/`
+}
+
 const goLablink = () => {
-  window.location.href = 'http://localhost:5173/'
+  window.location.href = getLablinkHomeUrl()
 }
 
 const bootstrap = async () => {
-  const token = sessionStorage.getItem('lablink_token')
+  const token = getLablinkToken()
   if (!token) {
     loading.value = false
     errorMessage.value = '未获取到 LabLink 登录 token，请先从 LabLink 前端点击 Agent 悬浮按钮进入。'

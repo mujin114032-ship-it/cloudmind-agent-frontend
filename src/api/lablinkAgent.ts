@@ -1,4 +1,4 @@
-import request, { getLablinkToken } from '@/utils/request'
+import request, { buildCloudMindApiUrl, getLablinkToken } from '@/utils/request'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 
 export interface LablinkAgentBootstrapData {
@@ -55,19 +55,19 @@ export interface LablinkAgentChatRequest {
 }
 
 export function getLablinkAgentBootstrap() {
-  return request.get<any, LablinkAgentBootstrapData>('/api/lablink/agent/bootstrap')
+  return request.get<any, LablinkAgentBootstrapData>('/lablink/agent/bootstrap')
 }
 
 export function saveLablinkAgentLlmKey(data: SaveLlmKeyRequest) {
-  return request.post<any, LablinkAgentBootstrapData>('/api/lablink/agent/llm-key', data)
+  return request.post<any, LablinkAgentBootstrapData>('/lablink/agent/llm-key', data)
 }
 
 export function getLablinkAgentSessions() {
-  return request.get<any, LablinkAgentSessionVO[]>('/api/lablink/agent/sessions')
+  return request.get<any, LablinkAgentSessionVO[]>('/lablink/agent/sessions')
 }
 
 export function getLablinkAgentSessionMessages(sessionId: string) {
-  return request.get<any, LablinkAgentMessageVO[]>(`/api/lablink/agent/sessions/${sessionId}/messages`)
+  return request.get<any, LablinkAgentMessageVO[]>(`/lablink/agent/sessions/${sessionId}/messages`)
 }
 
 export function lablinkAgentStreamChat(
@@ -84,7 +84,7 @@ export function lablinkAgentStreamChat(
 ) {
   const token = getLablinkToken()
 
-  return fetchEventSource('/api/lablink/agent/chat/stream', {
+  return fetchEventSource(buildCloudMindApiUrl('/lablink/agent/chat/stream'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

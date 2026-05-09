@@ -574,9 +574,13 @@ const scrollToBottom = () => {
   })
 }
 
+const getLablinkHomeUrl = () => {
+  return import.meta.env.DEV ? 'http://localhost:5173/' : `${window.location.origin}/`
+}
+
 const handleBack = () => {
   if (isLablinkMode.value) {
-    window.location.href = 'http://localhost:5173/'
+    window.location.href = getLablinkHomeUrl()
     return
   }
   router.push('/knowledge')

@@ -1,5 +1,5 @@
 // src/api/chat.ts
-import request from '@/utils/request'
+import request, { buildCloudMindApiUrl, getLablinkToken } from '@/utils/request'
 import type { PageData } from '@/utils/request'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 
@@ -66,27 +66,27 @@ export interface SessionRagQaResponse {
 
 // 1. 创建会话
 export function createChatSession(data: { knowledgeBaseId: string; title: string }) {
-  return request.post<any, ChatSessionVO>('/api/chat/sessions', data)
+  return request.post<any, ChatSessionVO>('/chat/sessions', data)
 }
 
 // 2. 查询会话列表
 export function getChatSessionList(params: { pageNo?: number; pageSize?: number; knowledgeBaseId?: string; keyword?: string }) {
-  return request.get<any, PageData<ChatSessionVO>>('/api/chat/sessions', { params })
+  return request.get<any, PageData<ChatSessionVO>>('/chat/sessions', { params })
 }
 
 // 3. 删除会话
 export function deleteChatSession(sessionId: string) {
-  return request.delete<any, null>(`/api/chat/sessions/${sessionId}`)
+  return request.delete<any, null>(`/chat/sessions/${sessionId}`)
 }
 
 // 4. 查询会话历史消息
 export function getChatMessageList(sessionId: string, params?: { pageNo?: number; pageSize?: number }) {
-  return request.get<any, PageData<ChatMessageVO>>(`/api/chat/sessions/${sessionId}/messages`, { params })
+  return request.get<any, PageData<ChatMessageVO>>(`/chat/sessions/${sessionId}/messages`, { params })
 }
 
 // 5. 基于会话进行普通 RAG 问答
 export function sessionRagQa(sessionId: string, data: SessionRagQaRequest) {
-  return request.post<any, SessionRagQaResponse>(`/api/chat/sessions/${sessionId}/rag/qa`, data)
+  return request.post<any, SessionRagQaResponse>(`/chat/sessions/${sessionId}/rag/qa`, data)
 }
 
 // 6. 基于会话进行 SSE 流式 RAG 问答
@@ -102,14 +102,16 @@ export function sessionStreamRagQa(
   },
   signal?: AbortSignal
 ) {
+  const token = getLablinkToken()
+
   return fetchEventSource(
-    `/api/chat/sessions/${sessionId}/rag/qa/stream`,
+    buildCloudMindApiUrl(`/chat/sessions/${sessionId}/rag/qa/stream`),
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'text/event-stream'
-        // 'Authorization': `Bearer ${token}`
+        'Accept': 'text/event-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
       body: JSON.stringify(data),
       signal,
