@@ -70,6 +70,10 @@ export function getLablinkAgentSessionMessages(sessionId: string) {
   return request.get<any, LablinkAgentMessageVO[]>(`/lablink/agent/sessions/${sessionId}/messages`)
 }
 
+export function deleteLablinkAgentSession(sessionId: string) {
+  return request.delete<any, null>(`/lablink/agent/sessions/${sessionId}`)
+}
+
 export function lablinkAgentStreamChat(
   data: LablinkAgentChatRequest,
   handlers: {

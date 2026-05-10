@@ -33,7 +33,13 @@
               <div class="session-title">{{ session.title }}</div>
             </div>
             
-            <el-popconfirm v-if="!isLablinkMode" title="确定删除此会话吗？" @confirm="handleDeleteSession(session.sessionId)" width="180">
+            <el-popconfirm
+              title="确定删除此会话吗？"
+              confirm-button-text="删除"
+              cancel-button-text="取消"
+              width="200"
+              @confirm="handleDeleteSession(session.sessionId)"
+            >
               <template #reference>
                 <div class="delete-icon-wrapper" @click.stop>
                   <el-icon class="delete-icon"><Delete /></el-icon>
@@ -445,7 +451,7 @@ import {
   sessionRagQa,
   sessionStreamRagQa
 } from '@/api/chat'
-import { lablinkAgentStreamChat, getLablinkAgentSessions, getLablinkAgentSessionMessages } from '@/api/lablinkAgent'
+import { lablinkAgentStreamChat, getLablinkAgentSessions, getLablinkAgentSessionMessages, deleteLablinkAgentSession } from '@/api/lablinkAgent'
 import type { LablinkAgentBootstrapData } from '@/api/lablinkAgent'
 import type { ChatSessionVO, ChatMessageVO } from '@/api/chat'
 import { getTraceDetail, getPromptTemplates } from '@/api/knowledge'
@@ -664,17 +670,46 @@ const selectSession = async (session: ChatSessionVO) => {
 }
 
 // 4. 删除会话
+const abortCurrentStreamIfNeeded = () => {
+  if (!isGenerating.value) return
+
+  if (abortController) {
+    abortController.abort()
+    abortController = null
+  }
+
+  isGenerating.value = false
+
+  const lastMsg = messages.value[messages.value.length - 1]
+  if (lastMsg && lastMsg.role === 'assistant') {
+    lastMsg.loading = false
+  }
+}
+
 const handleDeleteSession = async (sessionId: string) => {
+  const isDeletingCurrentSession = currentSessionId.value === sessionId
+
   try {
-    await deleteChatSession(sessionId)
+    if (isGenerating.value) {
+      abortCurrentStreamIfNeeded()
+    }
+
+    if (isLablinkMode.value) {
+      await deleteLablinkAgentSession(sessionId)
+    } else {
+      await deleteChatSession(sessionId)
+    }
+
     ElMessage.success('会话已删除')
-    if (currentSessionId.value === sessionId) {
+
+    if (isDeletingCurrentSession) {
       currentSessionId.value = ''
       messages.value = []
     }
-    fetchSessions()
+
+    await fetchSessions()
   } catch (error) {
-    //
+    ElMessage.error('删除会话失败')
   }
 }
 
